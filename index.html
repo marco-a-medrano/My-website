@@ -1,312 +1,239 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Marco Amedrano</title>
-<!-- viewport-fit=cover lets the page draw under phone notches; the CSS below adds safe-area padding -->
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Marco Amedrano's portfolio. Drive the car to explore.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;700;800&display=swap">
 <style>
-/* ---------- Color tokens (light theme) ----------
-   Change these to re-theme the whole site. */
-:root{
-  --sky1:#f7c873;   /* top of the sky gradient */
-  --sky2:#fbe9c6;   /* bottom of the sky gradient */
-  --hill1:#d99b5b;  /* far background hills */
-  --hill2:#b9763f;  /* nearer background hills */
-  --grass:#6d8f3a;  /* grass line on top of the terrain */
-  --dirt:#5a3b22;   /* terrain fill */
-  --ink:#1d1a17;    /* text and borders */
-  --panel:#fff8ec;  /* buttons, popups, signs */
-  --accent:#d42020; /* hover color / highlighted sign */
-}
-/* Dark theme: applied automatically when the visitor's device is in dark mode */
-@media (prefers-color-scheme:dark){
-  :root{--sky1:#1b1d3a;--sky2:#5a3d5e;--hill1:#3c2f4a;--hill2:#2b2238;--grass:#3f5a2a;--dirt:#241710;--ink:#f3ead9;--panel:#221d2b}
-}
-
+/* ---------- Page basics ---------- */
+:root{--ink:#14181b;--sky:#e3e9ec;--mat:#b4bcc0}
 *{box-sizing:border-box}
+body{margin:0;background:var(--sky);color:var(--ink);font-family:'Bricolage Grotesque',system-ui,sans-serif}
 
-/* Full-screen page with no scrolling; the game fills the window */
-html,body{height:100%;margin:0;overflow:hidden;font-family:"Trebuchet MS","Gill Sans",system-ui,sans-serif;color:var(--ink);background:var(--sky2)}
-canvas{display:block;width:100%;height:100%}
+/* The hero is one full-screen section. Add more sections below it and they scroll normally. */
+.hero{position:relative;height:100vh;height:100svh;overflow:hidden;touch-action:none;user-select:none}
 
-/* Title and nav float over the game. pointer-events:none lets clicks pass through to the canvas;
-   the nav turns them back on so its buttons still work. */
-header{position:fixed;top:0;left:0;right:0;padding:calc(12px + env(safe-area-inset-top,0px)) 16px 0;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;pointer-events:none}
-h1{margin:0;font-size:clamp(20px,4vw,34px);letter-spacing:.5px}
-header p{margin:2px 0 0;font-size:14px;opacity:.8}
-nav{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;pointer-events:auto}
+/* ---------- 3D scene ---------- */
+/* #stage sets the camera: perspective = how strong the 3D effect is,
+   perspective-origin = where the horizon sits on the screen. */
+#stage{position:absolute;inset:0;perspective:620px;perspective-origin:50% 30%;background:linear-gradient(var(--sky) 0 30%,#c9d1d4)}
 
-/* Shared button style for nav, on-screen arrows and popup buttons */
-nav button,.ctl button,#panel button{font:inherit;cursor:pointer;border:2px solid var(--ink);background:var(--panel);color:var(--ink);border-radius:8px;padding:6px 10px}
-/* Hover and keyboard focus look the same so keyboard users can see where they are */
-nav button:hover,nav button:focus-visible,#panel button:hover,#panel button:focus-visible{background:var(--accent);color:#fff;outline:none}
+/* Fades the far end of the floor into the sky so the world looks endless. */
+#fog{position:absolute;inset:0;pointer-events:none;background:linear-gradient(var(--sky) 0 10%,transparent 42%)}
 
-/* "Open About [Enter]" prompt that appears when the car is parked at a sign */
-#hint{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--panel);border:2px solid var(--ink);border-radius:10px;padding:8px 14px;font-size:15px;white-space:nowrap}
-#hint button{margin-left:8px}
+/* The ground plane is tilted back 62deg. It never moves. The car stands on it. */
+#ground{position:absolute;left:50%;bottom:0;width:2400px;height:3000px;margin-left:-1200px;
+  transform-origin:50% 100%;transform:rotateX(62deg);transform-style:preserve-3d}
 
-/* On-screen left/right buttons, shown only on touch devices (pointer:coarse) */
-.ctl{position:fixed;bottom:calc(14px + env(safe-area-inset-bottom,0px));left:14px;right:14px;display:none;justify-content:space-between;pointer-events:none}
-.ctl button{pointer-events:auto;width:80px;height:60px;font-size:26px;touch-action:none;user-select:none}
-@media (pointer:coarse){.ctl{display:flex}}
+/* #clip crops the floor to the ground's size (keeps the huge floor from
+   stretching toward the camera). It does not move or rotate. */
+#clip{position:absolute;inset:0;overflow:hidden}
 
-/* Popup overlay for section content; hidden until the .open class is added */
-#panel{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.35)}
-#panel.open{display:flex}
-#card{background:var(--panel);border:3px solid var(--ink);border-radius:14px;max-width:520px;width:100%;max-height:80%;overflow:auto;padding:22px}
-#card h2{margin:0 0 10px;font-size:26px}
-#card p,#card li{line-height:1.5;max-width:60ch}
-#card a{color:var(--accent);font-weight:bold}
+/* The floor is a huge square centered under the car (car center = 1200px, 2550px).
+   JS rotates it and scrolls its pattern, so the world seems to move while the car stays still.
+   The pattern repeats forever: a checker (320px tiles) plus a fine grid (160px lines). */
+#floor{position:absolute;left:-1800px;top:-450px;width:6000px;height:6000px;background-color:var(--mat);
+  background-image:
+    linear-gradient(#14181b30 0 3px,#0000 3px),
+    linear-gradient(90deg,#14181b30 0 3px,#0000 3px),
+    conic-gradient(#14181b12 25%,#0000 0 50%,#14181b12 0 75%,#0000 0);
+  background-size:160px 160px,160px 160px,320px 320px}
+
+/* ---------- The car ---------- */
+/* Fixed position on the ground (center at 1200px, 2550px). preserve-3d lets the faces stack into a box. */
+#car{position:absolute;left:1155px;top:2495px;width:90px;height:110px;transform-style:preserve-3d}
+.b{position:absolute;left:0;top:0;transform-style:preserve-3d}
+
+/* Every face of every box. Colors come from the --c variable of .red / .k. */
+.f{position:absolute;left:0;top:0;background:var(--c)}
+.d{background:color-mix(in srgb,var(--c),#000 24%)}  /* front and back faces: slightly darker */
+.e{background:color-mix(in srgb,var(--c),#000 40%)}  /* side faces: darkest */
+.red{--c:#d71920}  /* car body color */
+.k{--c:#16191c}    /* camera color */
+
+.shadow{position:absolute;left:-6px;top:-4px;width:102px;height:122px;background:#0006;filter:blur(9px);transform:translateZ(1px)}
+
+/* Camera lens, stuck on the front face of the camera box. */
+.lens{position:absolute;left:6px;top:0;width:14px;height:12px;border-radius:50%;border:2px solid #000;
+  background:radial-gradient(circle at 35% 35%,#9fe8ff,#0b3a52 65%);
+  transform-origin:0 0;transform:rotateX(90deg) translate(0,2px) translateZ(1px)}
+
+/* Spiked wheel: a black disc clipped into a star by --star (built in JS). Grey dot = hub. */
+.wh{position:absolute;width:46px;height:46px;background:radial-gradient(#777 0 5px,#0a0a0a 6px);clip-path:var(--star)}
+
+/* ---------- Page text and UI ---------- */
+header{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:clamp(16px,3vw,36px)}
+h1{margin:0;font-size:clamp(2.4rem,7vw,5.5rem);line-height:.95;font-weight:800;letter-spacing:-.03em}
+h1+p{margin:.6rem 0 0;font-size:clamp(1rem,1.6vw,1.25rem);max-width:30ch}
+nav{display:flex;gap:1.4rem;padding-top:.6rem}
+nav a{color:var(--ink);font-weight:700;text-decoration:none;border-bottom:2px solid var(--ink)}
+a:focus-visible,button:focus-visible{outline:3px solid #d71920;outline-offset:3px}
+
+#hint{position:absolute;bottom:clamp(16px,3vw,32px);left:clamp(16px,3vw,36px);max-width:30ch;font-size:.95rem;transition:opacity .6s}
+#pause{position:absolute;inset:0;display:none;place-content:center;text-align:center;background:#14181bcc;color:#fff;font-size:clamp(2rem,6vw,4rem);font-weight:800}
+#pause.on{display:grid}
+
+/* On-screen buttons, only for touch screens. */
+#touch{display:none;position:absolute;left:0;right:0;bottom:24px;justify-content:space-between;padding:0 16px}
+#touch div{display:flex;gap:12px}
+#touch button{font-size:1.5rem;width:68px;height:68px;border-radius:50%;border:2px solid var(--ink);background:#fffa;color:var(--ink)}
+@media (pointer:coarse){#touch{display:flex}#hint{display:none}}
 </style>
 </head>
 <body>
-<!-- The game is drawn on this canvas. aria-label gives screen readers a description. -->
-<canvas id="c" aria-label="Driving game portfolio"></canvas>
+<main class="hero">
+  <div id="stage">
+    <div id="ground">
+      <div id="clip"><div id="floor"></div></div>
+      <div id="car"></div>  <!-- filled in by JS below -->
+    </div>
+  </div>
+  <div id="fog"></div>
 
-<header>
-  <div><h1>Marco Amedrano</h1><p>Drive with arrow keys or A / D. Stop at a sign to open it.</p></div>
-  <!-- Quick-jump buttons are created by the script, one per station -->
-  <nav id="nav" aria-label="Jump to section"></nav>
-</header>
+  <header>
+    <div><h1>Marco<br>Amedrano</h1><p>Robotics builder. Take the car for a drive.</p></div>
+    <nav><a href="#projects">Projects</a><a href="#about">About</a><a href="#contact">Contact</a></nav>
+  </header>
 
-<!-- Prompt shown near a sign; the script fills it in -->
-<div id="hint" hidden></div>
-
-<!-- Touch controls -->
-<div class="ctl"><button id="bl" aria-label="Drive left">◀</button><button id="br" aria-label="Drive right">▶</button></div>
-
-<!-- Popup that shows a section's content -->
-<div id="panel" role="dialog" aria-modal="true"><div id="card"></div></div>
+  <div id="hint">Up and down to drive and reverse. Left and right to steer. P pauses.</div>
+  <div id="touch">
+    <div><button id="bl" aria-label="Steer left">◀</button><button id="br" aria-label="Steer right">▶</button></div>
+    <div><button id="bu" aria-label="Drive forward">▲</button><button id="bd" aria-label="Reverse">▼</button></div>
+  </div>
+  <div id="pause" role="status">Paused</div>
+</main>
 
 <script>
-/* ===== EDIT YOUR CONTENT HERE =====
-   Each station is a sign on the road.
-   x     = position along the road in pixels (the road runs from 0 to WORLD, set below)
-   label = text on the sign and on the nav button
-   html  = what appears in the popup (plain HTML) */
-const STATIONS=[
- {x:500, label:"About", html:"<h2>About</h2><p>Hi, I'm Marco Amedrano. Write a short intro here: who you are, what you do, and what you're looking for.</p>"},
- {x:1300,label:"Projects", html:"<h2>Projects</h2><ul><li><b>Project one</b>: one line on what it is and your role.</li><li><b>Project two</b>: one line on what it is and your role.</li><li><b>Project three</b>: one line on what it is and your role.</li></ul>"},
- {x:2100,label:"Skills", html:"<h2>Skills</h2><ul><li>Skill or tool</li><li>Skill or tool</li><li>Skill or tool</li></ul>"},
- {x:2900,label:"Contact", html:"<h2>Contact</h2><p>Email: <a href='mailto:you@marcoamedrano.com'>you@marcoamedrano.com</a></p><p><a href='#'>LinkedIn</a> · <a href='#'>GitHub</a></p>"}
-];
-/* ================================== */
+const $ = id => document.getElementById(id);
+const floor = $('floor'), car = $('car');
 
-/* ---------- Setup ---------- */
-const WORLD=3400;                         // total road length in pixels
-const cv=document.getElementById('c');    // the canvas element
-const g=cv.getContext('2d');              // the 2D drawing context (all drawing goes through g)
-const $=id=>document.getElementById(id);  // shorthand for getElementById
-let W,H,dpr;                              // window width, height, and pixel ratio
+/* =========================================================
+   1. BUILD THE CAR (red body, front camera, black spiked wheels)
+   ========================================================= */
 
-// Match the canvas resolution to the window and screen sharpness (dpr),
-// so the drawing stays crisp on high-resolution displays.
-function resize(){
-  dpr=window.devicePixelRatio||1;
-  W=innerWidth;H=innerHeight;
-  cv.width=W*dpr;cv.height=H*dpr;
-  g.setTransform(dpr,0,0,dpr,0,0);
+/* box(width, length, height, colorClass) returns the HTML for a 3D box made of 5 flat faces
+   (no bottom, it is never seen). translateZ lifts a face up off the ground plane. */
+const box = (w,l,h,c) => `
+<i class="f ${c}"   style="width:${w}px;height:${l}px;transform:translateZ(${h}px)"></i>                               <!-- top -->
+<i class="f ${c} d" style="width:${w}px;height:${h}px;transform-origin:0 0;transform:rotateX(90deg)"></i>              <!-- front -->
+<i class="f ${c} d" style="width:${w}px;height:${h}px;top:${l}px;transform-origin:0 0;transform:rotateX(90deg)"></i>   <!-- back -->
+<i class="f ${c} e" style="width:${h}px;height:${l}px;transform-origin:0 0;transform:rotateY(-90deg)"></i>             <!-- left -->
+<i class="f ${c} e" style="width:${h}px;height:${l}px;left:${w}px;transform-origin:0 0;transform:rotateY(-90deg)"></i> <!-- right -->`;
+
+/* Wheel spikes: a 24-point polygon that alternates between an outer radius (50%) and an
+   inner radius (34%), which makes a 12-spike star. Change 34 to make spikes shorter or longer. */
+const pts = [];
+for (let i = 0; i < 24; i++) {
+  const a = i * Math.PI / 12, r = i % 2 ? 34 : 50;
+  pts.push(`${50 + r*Math.cos(a)}% ${50 + r*Math.sin(a)}%`);
 }
-addEventListener('resize',resize);
-resize();
+document.documentElement.style.setProperty('--star', `polygon(${pts.join(',')})`);
 
-/* ---------- Terrain ----------
-   Returns the ground's y position (in screen pixels) at world position x.
-   Two sine waves of different sizes make natural-looking hills,
-   minus flat(x), which smooths the ground near signs. */
-const terrain=x=>{
-  return H*0.68+38*Math.sin(x/260)+22*Math.sin(x/97+1)-(flat(x))};
+/* Wheel center positions [x, y] around the body (body is 90 wide, 110 long). */
+const spots = [[-6,24],[96,24],[-6,88],[96,88]];
 
-// Cancels out the hills near each sign so the car can park on level ground.
-// k is 1 right at a sign and fades to 0 at 160px away.
-function flat(x){
-  let d=1e9;                                        // distance to the closest sign
-  for(const s of STATIONS)d=Math.min(d,Math.abs(x-s.x));
-  const k=Math.max(0,1-d/160);
-  return k*(38*Math.sin(x/260)+22*Math.sin(x/97+1))*0.9
+car.innerHTML =
+  `<i class="shadow"></i>` +
+  /* Body: 90 x 110 x 34, lifted 14px so the wheels carry it */
+  `<div class="b" style="transform:translateZ(14px)">${box(90,110,34,'red')}</div>` +
+  /* Camera: small box sitting on the front of the roof, lens facing forward */
+  `<div class="b" style="left:32px;top:10px;transform:translateZ(48px)">${box(26,22,16,'k')}<i class="lens"></i></div>` +
+  /* Four spiked wheels */
+  spots.map(([x,y]) => `<i class="wh" style="left:${x-23}px;top:${y-23}px"></i>`).join('');
+
+const wheels = [...car.querySelectorAll('.wh')];
+
+/* =========================================================
+   2. DRIVING STATE
+   The car never moves on screen. Instead we track where it is in
+   the world (px, py) and which way it faces (heading), then move
+   and rotate the floor underneath it.
+   ========================================================= */
+const keys = { l:0, r:0, u:0, d:0 };   // 1 while a control is held
+let px = 0, py = 0;                     // car position in the world
+let heading = 0;                        // direction in radians (0 = up, positive = turning right)
+let speed = 0;                          // positive = forward, negative = reverse
+let wheelAng = 0;                       // how far the wheels have spun
+let paused = false;
+let last = performance.now();
+
+const MAX_SPEED = 14, MAX_REVERSE = 5;  // tweak these for a faster or slower car
+const TILE = 320;                       // repeat size of the floor pattern
+
+/* =========================================================
+   3. GAME LOOP
+   ========================================================= */
+function update(dt) {                   // dt = 1 at 60fps, so speed is the same on any screen
+  const steer = keys.r - keys.l;        // -1 left, 0 straight, +1 right
+  const gas   = keys.u - keys.d;        // +1 forward, -1 brake/reverse
+
+  speed += gas * (gas > 0 ? 0.28 : 0.22) * dt;      // accelerate
+  speed *= Math.pow(0.985, dt);                      // friction slows the car when you let go
+  speed = Math.max(-MAX_REVERSE, Math.min(MAX_SPEED, speed));
+
+  /* Steering only works while rolling (grip is 0 when stopped, near 1 at speed),
+     and flips in reverse like a real car. */
+  const grip = speed / (Math.abs(speed) + 3);
+  heading += steer * 0.04 * grip * dt;
+
+  /* Move forward along the heading. */
+  px += Math.sin(heading) * speed * dt;
+  py -= Math.cos(heading) * speed * dt;
+
+  wheelAng += speed * dt * 6;           // wheels spin with speed (backward in reverse)
 }
 
-/* ---------- Game state ----------
-   x   = position along the road
-   v   = speed (pixels per second, negative means driving left)
-   rot = wheel spin angle
-   ang = body tilt angle (follows the slope) */
-const car={x:120,v:0,rot:0,ang:0};
-const keys={};                 // which keys are currently held down
-let open=false;                // true while a popup is showing
-let near=null;                 // the sign the car is currently parked at, if any
+function draw() {
+  /* Rotate the whole floor opposite to the heading, so the car always points up the screen. */
+  floor.style.transform = `rotate(${-heading * 180 / Math.PI}deg)`;
 
-/* ---------- Keyboard input ---------- */
-addEventListener('keydown',e=>{
-  // Stop arrow keys and A/D from scrolling or doing other browser things
-  if(['ArrowLeft','ArrowRight','a','d','A','D'].includes(e.key))e.preventDefault();
-  keys[e.key.toLowerCase()]=true;
-  // Enter, E or Space opens the sign the car is parked at
-  if((e.key==='Enter'||e.key==='e'||e.key==='E'||e.key===' ')&&near&&!open){e.preventDefault();openPanel(near)}
-  if(e.key==='Escape')closePanel();
+  /* Scroll the pattern opposite to the car's movement. The modulo keeps numbers small
+     and the pattern repeats seamlessly, so the world never ends. */
+  const ox = ((-px % TILE) + TILE) % TILE;
+  const oy = ((-py % TILE) + TILE) % TILE;
+  floor.style.backgroundPosition = `${ox}px ${oy}px`;
+
+  /* Spin the spiked wheels. */
+  wheels.forEach(w => w.style.transform = `translateZ(23px) rotateY(90deg) rotate(${wheelAng}deg)`);
+}
+
+function loop(t) {
+  const dt = Math.min((t - last) / 16.67, 3);   // cap dt so a background tab doesn't cause a jump
+  last = t;
+  if (!paused) update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* =========================================================
+   4. CONTROLS
+   ========================================================= */
+/* Keyboard: arrows or WASD. */
+const map = { ArrowLeft:'l', a:'l', A:'l', ArrowRight:'r', d:'r', D:'r',
+              ArrowUp:'u', w:'u', W:'u', ArrowDown:'d', s:'d', S:'d' };
+
+addEventListener('keydown', e => {
+  if (map[e.key]) {
+    keys[map[e.key]] = 1;
+    e.preventDefault();                     // stop arrow keys from scrolling the page
+    $('hint').style.opacity = .35;          // fade the hint once you start driving
+  }
+  if (e.key === 'p' || e.key === 'P') {     // pause toggle
+    paused = !paused;
+    $('pause').classList.toggle('on', paused);
+  }
 });
-addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+addEventListener('keyup', e => { if (map[e.key]) keys[map[e.key]] = 0; });
 
-/* ---------- Touch input ----------
-   The on-screen buttons set the same "keys" flags as the keyboard.
-   Releasing, leaving the button, or a cancelled touch all stop the car. */
-for(const [id,k] of [['bl','arrowleft'],['br','arrowright']]){
-  const b=$(id);
-  b.addEventListener('pointerdown',e=>{e.preventDefault();keys[k]=true});
-  ['pointerup','pointerleave','pointercancel'].forEach(t=>b.addEventListener(t,()=>keys[k]=false));
-}
-
-/* ---------- Popup ---------- */
-// Fill the card with the sign's content, add a close button, and show it.
-// Focus moves to the button so keyboard users can dismiss it right away.
-function openPanel(s){
-  open=true;
-  $('card').innerHTML=s.html+'<p><button id="x">Back to the road</button></p>';
-  $('panel').classList.add('open');
-  $('x').onclick=closePanel;
-  $('x').focus();
-}
-function closePanel(){open=false;$('panel').classList.remove('open')}
-// Clicking the dark area outside the card also closes it
-$('panel').addEventListener('click',e=>{if(e.target.id==='panel')closePanel()});
-
-/* ---------- Nav buttons ----------
-   One button per station. Clicking teleports the car to just before that sign. */
-const nav=$('nav');
-STATIONS.forEach(s=>{
-  const b=document.createElement('button');
-  b.textContent=s.label;
-  b.onclick=()=>{car.x=s.x-90;car.v=0;closePanel()};
-  nav.appendChild(b);
+/* Touch: hold a button to use it, release to stop. */
+[['bl','l'],['br','r'],['bu','u'],['bd','d']].forEach(([id, k]) => {
+  const b = $(id);
+  b.addEventListener('pointerdown', e => { keys[k] = 1; e.preventDefault(); });
+  ['pointerup','pointercancel','pointerleave'].forEach(ev => b.addEventListener(ev, () => keys[k] = 0));
 });
-
-/* ---------- Drawing helpers ---------- */
-// Reads a CSS variable (like --sky1) so the canvas uses the same colors as the page
-// and follows light/dark mode automatically.
-const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-
-// Draws one black spiked wheel centered at (cx, cy) with radius r, spun by angle rot.
-function wheel(cx,cy,r,rot){
-  g.fillStyle='#000';
-  // 8 triangular spikes evenly spaced around the wheel (45 degrees apart)
-  for(let i=0;i<8;i++){
-    const a=rot+i*Math.PI/4;
-    g.beginPath();
-    g.moveTo(cx+Math.cos(a-.22)*r,cy+Math.sin(a-.22)*r);      // left base of the spike
-    g.lineTo(cx+Math.cos(a)*(r+8),cy+Math.sin(a)*(r+8));      // tip, 8px beyond the wheel
-    g.lineTo(cx+Math.cos(a+.22)*r,cy+Math.sin(a+.22)*r);      // right base of the spike
-    g.fill();
-  }
-  g.beginPath();g.arc(cx,cy,r,0,7);g.fill();                  // the round wheel itself
-  g.fillStyle='#777';g.beginPath();g.arc(cx,cy,3.5,0,7);g.fill(); // grey hub so you can see it spin
-}
-
-/* ---------- Main loop ----------
-   Runs about 60 times per second: update the car, then redraw everything. */
-let last=performance.now();
-function frame(t){
-  // Time since the last frame in seconds, capped so a paused tab doesn't cause a huge jump
-  const dt=Math.min(.033,(t-last)/1000);last=t;
-
-  // Driving direction: +1 right, -1 left, 0 none (right key minus left key)
-  const dir=(keys.arrowright||keys.d?1:0)-(keys.arrowleft||keys.a?1:0);
-
-  // --- Physics (paused while a popup is open) ---
-  if(!open){
-    // Slope of the ground under the car (positive means downhill to the right)
-    const slope=(terrain(car.x+10)-terrain(car.x-10))/20;
-    // Engine pushes by 420, gravity pulls along the slope by 260
-    car.v+=dir*420*dt-slope*260*dt;
-    // Friction: gentle while driving, stronger when coasting so the car settles at a sign
-    car.v*=dir?0.992:0.96;
-    // Move the car, keeping it inside the road's ends
-    car.x=Math.max(60,Math.min(WORLD-60,car.x+car.v*dt));
-    if(car.x<=60||car.x>=WORLD-60)car.v=0;   // stop dead at the ends
-    car.rot+=car.v*dt/14;                     // spin wheels (14 is roughly the wheel radius)
-  }
-
-  // Camera: keep the car centered, but don't scroll past either end of the road
-  const cam=Math.max(0,Math.min(WORLD-W,car.x-W/2));
-
-  // --- Sky ---
-  const sk=g.createLinearGradient(0,0,0,H);
-  sk.addColorStop(0,css('--sky1'));sk.addColorStop(1,css('--sky2'));
-  g.fillStyle=sk;g.fillRect(0,0,W,H);
-
-  // --- Parallax hills ---
-  // Two background layers. p is how fast each scrolls compared to the road
-  // (smaller = farther away and slower), which creates a sense of depth.
-  for(const [p,col,base,amp] of [[.2,'--hill1',.5,50],[.5,'--hill2',.6,40]]){
-    g.fillStyle=css(col);
-    g.beginPath();g.moveTo(0,H);
-    for(let x=0;x<=W;x+=12){
-      const wx=x+cam*p;
-      g.lineTo(x,H*base+amp*Math.sin(wx/200)+amp*.5*Math.sin(wx/77));
-    }
-    g.lineTo(W,H);g.fill();
-  }
-
-  // --- Ground ---
-  // Trace the terrain across the screen, close the shape at the bottom, and fill with dirt
-  g.beginPath();g.moveTo(0,H);
-  for(let x=0;x<=W+8;x+=8)g.lineTo(x,terrain(x+cam));
-  g.lineTo(W,H);g.closePath();g.fillStyle=css('--dirt');g.fill();
-  // Then draw a thick green line along the top edge for grass
-  g.strokeStyle=css('--grass');g.lineWidth=8;g.lineJoin='round';g.beginPath();
-  for(let x=0;x<=W+8;x+=8){const y=terrain(x+cam);x?g.lineTo(x,y):g.moveTo(x,y)}
-  g.stroke();
-
-  // --- Signs ---
-  near=null;   // reset each frame; set below if the car is close to a sign
-  g.font='bold 18px "Trebuchet MS",sans-serif';g.textAlign='center';
-  for(const s of STATIONS){
-    const sx=s.x-cam,sy=terrain(s.x);          // screen position of this sign
-    if(sx<-150||sx>W+150)continue;             // skip signs that are off screen
-    const isNear=Math.abs(car.x-s.x)<70;       // within 70px counts as parked at the sign
-    if(isNear)near=s;
-    g.fillStyle='#6b4a2b';g.fillRect(sx-4,sy-90,8,90);   // wooden post
-    const w=g.measureText(s.label).width+28;              // board width fits the label
-    g.fillStyle=isNear?'#d42020':'#fff8ec';               // board turns red when the car is near
-    g.strokeStyle='#1d1a17';g.lineWidth=3;
-    g.beginPath();g.roundRect(sx-w/2,sy-140,w,46,8);g.fill();g.stroke();
-    g.fillStyle=isNear?'#fff':'#1d1a17';g.fillText(s.label,sx,sy-110);
-  }
-
-  // --- Car ---
-  // Each wheel sits on the ground at its own x, so the car follows hills.
-  // R = wheel radius, hw = half the distance between the wheels.
-  const R=13,hw=20,ax=car.x-hw,bx=car.x+hw;
-  const ay=terrain(ax)-R,by=terrain(bx)-R;        // wheel centers (one radius above the ground)
-  const ang=Math.atan2(by-ay,bx-ax);              // tilt from the line between the wheels
-  car.ang+=(ang-car.ang)*.3;                      // ease toward that tilt so it isn't jittery
-  const cx=car.x-cam,cy=(ay+by)/2;                // middle point between the wheels, in screen space
-  g.save();
-  g.translate(cx,cy);g.rotate(car.ang);           // draw the car in its own tilted coordinate system
-  g.fillStyle='#d42020';g.strokeStyle='#7a0f0f';g.lineWidth=3;
-  g.fillRect(-26,-58,52,52);g.strokeRect(-26,-58,52,52);   // red square body
-  g.fillStyle='#ffd9d9';g.fillRect(2,-50,18,16);           // window
-  g.fillStyle='#ffe98a';g.fillRect(22,-24,6,8);            // headlight
-  wheel(-hw,0,R,car.rot);wheel(hw,0,R,car.rot);            // back and front wheels
-  g.restore();
-
-  // --- Hint prompt ---
-  // Only rebuild the prompt's HTML when the nearby sign changes. Rebuilding it every frame
-  // would swap out the button mid-click and make it hard to press.
-  const h=$('hint');
-  if(near&&!open){
-    if(h.dataset.k!==near.label){
-      h.dataset.k=near.label;
-      h.innerHTML='Open '+near.label+' <button id="go">Enter</button>';
-      $('go').onclick=()=>openPanel(near);
-    }
-    h.hidden=false;
-  }else{h.hidden=true;h.dataset.k=''}
-
-  requestAnimationFrame(frame);   // schedule the next frame
-}
-requestAnimationFrame(frame);     // start the loop
 </script>
 </body>
 </html>
